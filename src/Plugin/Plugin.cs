@@ -24,18 +24,11 @@ public enum WireColor
 
 public sealed class PluginConfig
 {
-	/// <summary>
-	/// Timeout in seconds for the wire selection menu
-	/// </summary>
 	public int MenuTimeout { get; set; } = 5;
-
-	/// <summary>
-	/// If enabled, the order of wire colors in the menu will be randomized.
-	/// </summary>
 	public bool RandomizeWireOrder { get; set; } = false;
 }
 
-[PluginMetadata(Id = "k4.bombwires", Version = "1.0.1", Name = "K4 - Bomb Wires", Author = "K4ryuu", Description = "A bomb defuse minigame where CT optionally can guess the correct wire color set by T.")]
+[PluginMetadata(Id = "k4.bombwires", Version = "1.0.2", Name = "K4 - Bomb Wires (Optimized)", Author = "K4ryuu", Description = "A bomb defuse minigame where CT must guess the correct wire color set by T.")]
 public sealed class Plugin(ISwiftlyCore core) : BasePlugin(core)
 {
 	public static new ISwiftlyCore Core { get; private set; } = null!;
@@ -44,18 +37,22 @@ public sealed class Plugin(ISwiftlyCore core) : BasePlugin(core)
 	private WireColor _currentWire = WireColor.Max;
 	private IMenuAPI? _wireMenu;
 
+	private static readonly (WireColor Color, string ColorTag, string LocalizerKey)[] WireDefinitions =
+	[
+		(WireColor.Red, "#FF0000", "k4.menu.red"),
+		(WireColor.Blue, "#00BFFF", "k4.menu.blue"),
+		(WireColor.Yellow, "#FFFF00", "k4.menu.yellow"),
+		(WireColor.Green, "#00FF00", "k4.menu.green")
+	];
+
 	public override void Load(bool hotReload)
 	{
 		Core = base.Core;
-
 		LoadConfiguration();
 		RegisterEventHandlers();
 	}
 
-	public override void Unload()
-	{
-		// Nothing to clean up
-	}
+	public override void Unload() { }
 
 	private void LoadConfiguration()
 	{
@@ -96,78 +93,66 @@ public sealed class Plugin(ISwiftlyCore core) : BasePlugin(core)
 
 	private HookResult OnRoundPrestart(EventRoundPrestart @event)
 	{
-		// Close wire menus for all players when round ends
 		if (_wireMenu != null)
 		{
 			Core.MenusAPI.CloseMenu(_wireMenu);
 			_wireMenu = null;
 		}
-
 		return HookResult.Continue;
 	}
 
 	private HookResult OnBombBeginPlant(EventBombBeginplant @event)
 	{
 		var player = @event.Accessor.GetPlayer("userid");
-		if (player?.IsValid != true || player.IsFakeClient)
-			return HookResult.Continue;
-
-		ShowWireMenu(player, true);
+		if (player?.IsValid == true && !player.IsFakeClient)
+		{
+			ShowWireMenu(player, true);
+		}
 		return HookResult.Continue;
 	}
 
 	private HookResult OnBombPlanted(EventBombPlanted @event)
 	{
 		var player = @event.Accessor.GetPlayer("userid");
-		if (player?.IsValid != true || player.IsFakeClient)
-			return HookResult.Continue;
-
-		// If T didn't select a wire, pick random
-		if (_currentWire == WireColor.Max)
+		if (player?.IsValid == true && !player.IsFakeClient && _currentWire == WireColor.Max)
 		{
 			_currentWire = (WireColor)Random.Shared.Next(0, (int)WireColor.Max);
 		}
-
 		return HookResult.Continue;
 	}
 
 	private HookResult OnBombBeginDefuse(EventBombBegindefuse @event)
 	{
 		var player = @event.Accessor.GetPlayer("userid");
-		if (player?.IsValid != true || player.IsFakeClient)
-			return HookResult.Continue;
-
-		ShowWireMenu(player, false);
+		if (player?.IsValid == true && !player.IsFakeClient)
+		{
+			ShowWireMenu(player, false);
+		}
 		return HookResult.Continue;
 	}
 
 	private HookResult OnBombDefused(EventBombDefused @event)
 	{
-		var player = @event.Accessor.GetPlayer("userid");
-		ClearMenuIfValidPlayer(player);
+		ClearMenuIfValidPlayer(@event.Accessor.GetPlayer("userid"));
 		return HookResult.Continue;
 	}
 
 	private HookResult OnBombExploded(EventBombExploded @event)
 	{
-		var player = @event.Accessor.GetPlayer("userid");
-		ClearMenuIfValidPlayer(player);
+		ClearMenuIfValidPlayer(@event.Accessor.GetPlayer("userid"));
 		return HookResult.Continue;
 	}
 
 	private HookResult OnDefuseAborted(EventBombAbortdefuse @event)
 	{
-		var player = @event.Accessor.GetPlayer("userid");
-		ClearMenuIfValidPlayer(player);
+		ClearMenuIfValidPlayer(@event.Accessor.GetPlayer("userid"));
 		return HookResult.Continue;
 	}
 
 	private HookResult OnPlantAborted(EventBombAbortplant @event)
 	{
 		_currentWire = WireColor.Max;
-
-		var player = @event.Accessor.GetPlayer("userid");
-		ClearMenuIfValidPlayer(player);
+		ClearMenuIfValidPlayer(@event.Accessor.GetPlayer("userid"));
 		return HookResult.Continue;
 	}
 
@@ -175,7 +160,6 @@ public sealed class Plugin(ISwiftlyCore core) : BasePlugin(core)
 	{
 		var localizer = Core.Translation.GetPlayerLocalizer(player);
 
-		// Helper message
 		player.SendChatAsync($" {localizer["k4.general.prefix"]} {localizer[planting ? "k4.menu.helper_t" : "k4.menu.helper_ct"]}");
 
 		var menuBuilder = Core.MenusAPI
@@ -188,25 +172,21 @@ public sealed class Plugin(ISwiftlyCore core) : BasePlugin(core)
 			.SetSelectButton(KeyBind.Space)
 			.SetPlayerFrozen(false);
 
-		var wireOptions = new List<(WireColor color, string text)>
-		{
-			(WireColor.Red, $"<font color='#FF0000'>{localizer["k4.menu.red"]}</font>"),
-			(WireColor.Blue, $"<font color='#00BFFF'>{localizer["k4.menu.blue"]}</font>"),
-			(WireColor.Yellow, $"<font color='#FFFF00'>{localizer["k4.menu.yellow"]}</font>"),
-			(WireColor.Green, $"<font color='#00FF00'>{localizer["k4.menu.green"]}</font>")
-		};
-
+		var wires = (WireDefinitions.Clone() as (WireColor Color, string ColorTag, string LocalizerKey)[])!;
 		if (_config.RandomizeWireOrder)
 		{
-			wireOptions = wireOptions.OrderBy(_ => Random.Shared.Next()).ToList();
+			Random.Shared.Shuffle(wires);
 		}
 
-		foreach (var (color, text) in wireOptions)
+		foreach (var (color, colorTag, locKey) in wires)
 		{
+			var text = $"<font color='{colorTag}'>{localizer[locKey]}</font>";
 			var button = new ButtonMenuOption(text);
+			
+			var selectedColor = color;
 			button.Click += (_, _) =>
 			{
-				HandleWireSelection(player, color, planting, localizer);
+				HandleWireSelection(player, selectedColor, planting, localizer);
 				return ValueTask.CompletedTask;
 			};
 			menuBuilder.AddOption(button);
@@ -215,15 +195,12 @@ public sealed class Plugin(ISwiftlyCore core) : BasePlugin(core)
 		_wireMenu = menuBuilder.Build();
 		Core.MenusAPI.OpenMenuForPlayer(player, _wireMenu);
 
-		// Auto-close menu after timeout and select random if T didn't pick
 		Core.Scheduler.DelayBySeconds(_config.MenuTimeout, () =>
 		{
-			if (!player.IsValid)
-				return;
+			if (!player.IsValid) return;
 
 			ClearMenuIfValidPlayer(player);
 
-			// If T closed without selecting, pick random
 			if (planting && _currentWire == WireColor.Max)
 			{
 				_currentWire = (WireColor)Random.Shared.Next(0, (int)WireColor.Max);
@@ -239,29 +216,24 @@ public sealed class Plugin(ISwiftlyCore core) : BasePlugin(core)
 
 		if (planting)
 		{
-			// T is setting the wire
 			_currentWire = selectedWire;
 			player.SendChatAsync($" {localizer["k4.general.prefix"]} {localizer["k4.chat.select", wireName]}");
 		}
 		else
 		{
-			// CT is guessing the wire
 			var bomb = Core.EntitySystem.GetAllEntitiesByClass<CPlantedC4>().FirstOrDefault();
-			if (bomb == null)
-				return;
+			if (bomb == null) return;
 
 			var playerName = player.Controller?.PlayerName ?? "Unknown";
 
 			if (_currentWire == selectedWire)
 			{
-				// Correct! Instant defuse
 				Core.PlayerManager.SendChatAsync($" {localizer["k4.general.prefix"]} {localizer["k4.chat.success", playerName, wireName]}");
 				bomb.DefuseCountDown.Value = 0;
 				bomb.DefuseCountDownUpdated();
 			}
 			else
 			{
-				// Wrong! Instant explosion
 				Core.PlayerManager.SendChatAsync($" {localizer["k4.general.prefix"]} {localizer["k4.chat.failure", playerName, wireName]}");
 				bomb.C4Blow.Value = 1.0f;
 				bomb.C4BlowUpdated();

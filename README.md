@@ -11,7 +11,7 @@
 <br />
 <div align="center">
   <h1 align="center">KitsuneLab©</h1>
-  <h3 align="center">K4-BombWires</h3>
+  <h3 align="center">K4-BombWires (NEW MENU API)</h3>
   <a align="center">A bomb defuse minigame for Counter-Strike 2 using SwiftlyS2 framework. Terrorists select a wire color when planting, and CTs must guess correctly to instant defuse or the bomb explodes!</a>
 
   <p align="center">

@@ -1,10 +1,10 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
-using SwiftlyS2.Core.Menus.OptionsBase;
 using SwiftlyS2.Shared;
 using SwiftlyS2.Shared.GameEventDefinitions;
-using SwiftlyS2.Shared.Menus;
+using SwiftlyS2.Shared.Menu;
+using SwiftlyS2.Shared.Menu.Components;
 using SwiftlyS2.Shared.Misc;
 using SwiftlyS2.Shared.Players;
 using SwiftlyS2.Shared.Plugins;
@@ -35,14 +35,14 @@ public sealed class Plugin(ISwiftlyCore core) : BasePlugin(core)
 
 	private PluginConfig _config = null!;
 	private WireColor _currentWire = WireColor.Max;
-	private IMenuAPI? _wireMenu;
+	private IMenu? _wireMenu;
 
 	private static readonly (WireColor Color, string ColorTag, string LocalizerKey)[] WireDefinitions =
 	[
-		(WireColor.Red, "#FF0000", "k4.menu.red"),
-		(WireColor.Blue, "#00BFFF", "k4.menu.blue"),
-		(WireColor.Yellow, "#FFFF00", "k4.menu.yellow"),
-		(WireColor.Green, "#00FF00", "k4.menu.green")
+		(WireColor.Red, "#f00", "k4.menu.red"),
+		(WireColor.Blue, "#0bf", "k4.menu.blue"),
+		(WireColor.Yellow, "#ff0", "k4.menu.yellow"),
+		(WireColor.Green, "#0f0", "k4.menu.green")
 	];
 
 	public override void Load(bool hotReload)
@@ -95,7 +95,7 @@ public sealed class Plugin(ISwiftlyCore core) : BasePlugin(core)
 	{
 		if (_wireMenu != null)
 		{
-			Core.MenusAPI.CloseMenu(_wireMenu);
+			Core.Menu.CloseAll();
 			_wireMenu = null;
 		}
 		return HookResult.Continue;
@@ -162,15 +162,11 @@ public sealed class Plugin(ISwiftlyCore core) : BasePlugin(core)
 
 		player.SendChatAsync($" {localizer["k4.general.prefix"]} {localizer[planting ? "k4.menu.helper_t" : "k4.menu.helper_ct"]}");
 
-		var menuBuilder = Core.MenusAPI
-			.CreateBuilder()
-			.Design.SetMenuTitle(localizer["k4.menu.title"])
-			.Design.SetMenuTitleVisible(true)
-			.Design.SetMenuFooterVisible(true)
-			.Design.SetGlobalScrollStyle(MenuOptionScrollStyle.LinearScroll)
-			.SetAutoCloseDelay(_config.MenuTimeout + 2)
-			.SetSelectButton(KeyBind.Space)
-			.SetPlayerFrozen(false);
+		var menuBuilder = Core.Menu
+			.CreateMenu("k4.bombwires.wire")
+			.WithTitle(localizer["k4.menu.title"])
+			.WithAction("Select", MenuKey.Space)
+			.WithAutoClose(TimeSpan.FromSeconds(_config.MenuTimeout + 2));
 
 		var wires = (WireDefinitions.Clone() as (WireColor Color, string ColorTag, string LocalizerKey)[])!;
 		if (_config.RandomizeWireOrder)
@@ -181,19 +177,17 @@ public sealed class Plugin(ISwiftlyCore core) : BasePlugin(core)
 		foreach (var (color, colorTag, locKey) in wires)
 		{
 			var text = $"<font color='{colorTag}'>{localizer[locKey]}</font>";
-			var button = new ButtonMenuOption(text);
-			
 			var selectedColor = color;
-			button.Click += (_, _) =>
+			var button = new ButtonComponent(text, _ =>
 			{
 				HandleWireSelection(player, selectedColor, planting, localizer);
 				return ValueTask.CompletedTask;
-			};
-			menuBuilder.AddOption(button);
+			});
+			menuBuilder.Add(button);
 		}
 
 		_wireMenu = menuBuilder.Build();
-		Core.MenusAPI.OpenMenuForPlayer(player, _wireMenu);
+		_wireMenu.Open(player);
 
 		Core.Scheduler.DelayBySeconds(_config.MenuTimeout, () =>
 		{
@@ -255,9 +249,9 @@ public sealed class Plugin(ISwiftlyCore core) : BasePlugin(core)
 
 	private void ClearMenuIfValidPlayer(IPlayer? player)
 	{
-		if (player?.IsValid == true && !player.IsFakeClient && _wireMenu != null)
+		if (player?.IsValid == true && !player.IsFakeClient)
 		{
-			Core.MenusAPI.CloseMenuForPlayer(player, _wireMenu);
+			Core.Menu.CloseFor(player);
 		}
 	}
 }
